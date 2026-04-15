@@ -1,0 +1,50 @@
+# ===============
+#  Dependencias
+# ===============
+FROM node:24.13-alpine3.22 AS deps
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm install
+
+# =========
+#  Builder
+# =========
+FROM node:24.13-alpine3.22 AS builder
+
+WORKDIR /usr/src/app
+
+# copiar módulos de node desde deps
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+# copiar código fuente de la app
+COPY . .
+
+RUN npx prisma generate
+# RUN npm run test (ejecutar testing en caso de haber)
+RUN npm run build
+
+RUN npm ci -f --only=production && npm cache clean --force
+
+# ========================
+# Creación de imagen final
+# ========================
+FROM node:24.13-alpine3.22 AS prod
+
+WORKDIR /usr/src/app
+
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+
+COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/dev.db .
+RUN chown -R node /usr/src/app
+
+ENV NODE_ENV=production
+
+USER node
+
+EXPOSE 3000
+
+CMD [ "node", "dist/src/main.js" ]
